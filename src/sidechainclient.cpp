@@ -65,7 +65,7 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
     // Try to request deposits from mainchain
     boost::property_tree::ptree ptree;
     if (!SendRequestToMainchain(json, ptree)) {
-        LogPrintf("ERROR Sidechain client failed to request new deposits\n");
+        // TODO LogPrintf("ERROR Sidechain client failed to request new deposits\n");
         return incoming;  // TODO return false
     }
 
@@ -73,6 +73,7 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
     BOOST_FOREACH(boost::property_tree::ptree::value_type &value, ptree.get_child("result")) {
         // Looping through list of deposits
         SidechainDeposit deposit;
+        uint32_t n = 0;
         BOOST_FOREACH(boost::property_tree::ptree::value_type &v, value.second.get_child("")) {
             // Looping through this deposit's members
             if (v.first == "nsidechain") {
@@ -96,16 +97,6 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
                 deposit.keyID.SetHex(data);
             }
             else
-            if (v.first == "amountuserpayout") {
-                // Read user input amount
-                std::string data = v.second.data();
-                if (!data.length())
-                    continue;
-
-                if (!ParseMoney(data, deposit.amtUserPayout))
-                    continue;
-            }
-            else
             if (v.first == "txhex") {
                 // Read deposit transaction hex
                 std::string data = v.second.data();
@@ -115,6 +106,15 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
                     continue;
                 if (!DecodeHexTx(deposit.dtx, data))
                     continue;
+            }
+            else
+            if (v.first == "n") {
+                // Read deposit output index
+                std::string data = v.second.data();
+                if (!data.length())
+                    continue;
+
+                n = (unsigned int)std::stoi(data);
             }
             else
             if (v.first == "proofhex") {
@@ -130,7 +130,13 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
             }
         }
 
-        // Verify that the deposit represented exits as an output
+        // Get the user payout amount from the deposit output
+        if (n >= deposit.dtx.vout.size())
+            continue;
+        // TODO check the deposit output 'N' scriptPubKey (compare to THIS_SIDECHAIN)
+        deposit.amtUserPayout = deposit.dtx.vout[n].nValue;
+
+        // Verify that the deposit represented exists as an output
         bool depositValid = false;
         for (const CTxOut& out : deposit.dtx.vout) {
             CScript scriptPubKey = out.scriptPubKey;
@@ -166,9 +172,9 @@ std::vector<SidechainDeposit> SidechainClient::UpdateDeposits(uint8_t nSidechain
         if (depositValid)
             incoming.push_back(deposit);
     }
-    LogPrintf("Sidechain client received %d deposits\n", incoming.size());
+    // TODO LogPrintf("Sidechain client received %d deposits\n", incoming.size());
 
-    // return valid deposits in sidechain format
+    // return valid (in terms of format) deposits in sidechain format
     return incoming;
 }
 
@@ -312,7 +318,7 @@ std::vector<uint256> SidechainClient::RequestMainBlockHashes()
     boost::property_tree::ptree ptree;
     if (!SendRequestToMainchain(json, ptree)) {
         LogPrintf("ERROR Sidechain client failed to request main:block hashes\n");
-        return vHash; // TODO
+        return vHash; // TODO boolean
     }
 
     // Process result
@@ -325,15 +331,63 @@ std::vector<uint256> SidechainClient::RequestMainBlockHashes()
                 if (!data.length())
                     continue;
 
-                uint256 txid = uint256S(data);
-                if (!txid.IsNull())
-                    vHash.push_back(txid);
+                uint256 hashBlock = uint256S(data);
+                if (!hashBlock.IsNull())
+                    vHash.push_back(hashBlock);
             }
         }
     }
     LogPrintf("Sidechain client received %d main:block hashes.\n", vHash.size());
 
     return vHash;
+}
+
+bool SidechainClient::GetCTIP(std::pair<uint256, uint32_t>& ctip)
+{
+    // JSON for requesting sidechain deposits via mainchain HTTP-RPC
+    std::string json;
+    json.append("{\"jsonrpc\": \"1.0\", \"id\":\"SidechainClient\", ");
+    json.append("\"method\": \"listsidechainctip\", \"params\": ");
+    json.append("[\"");
+    json.append(std::to_string(THIS_SIDECHAIN.nSidechain));
+    json.append("\"");
+    json.append("] }");
+
+    // Try to request deposits from mainchain
+    boost::property_tree::ptree ptree;
+    if (!SendRequestToMainchain(json, ptree)) {
+        // TODO LogPrintf("ERROR Sidechain client failed to request CTIP\n");
+        return false;
+    }
+
+    // Process CTIP
+    uint256 txid;
+    uint32_t n;
+    BOOST_FOREACH(boost::property_tree::ptree::value_type &value, ptree.get_child("result")) {
+        // Looping through this deposit's members
+        if (value.first == "n") {
+            // Read sidechain number
+            std::string data = value.second.data();
+            if (!data.length())
+                continue;
+            n = std::stoi(data);
+        }
+        else
+        if (value.first == "txid") {
+            // Read keyID
+            std::string data = value.second.data();
+            if (!data.length())
+                continue;
+
+            txid = uint256S(data);
+        }
+    }
+    // TODO LogPrintf("Sidechain client received CTIP\n");
+
+    ctip = std::make_pair(txid, n);
+
+    // return valid deposits in sidechain format
+    return true;
 }
 
 bool SidechainClient::SendRequestToMainchain(const std::string& json, boost::property_tree::ptree &ptree)

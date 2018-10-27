@@ -130,7 +130,7 @@ bool ShutdownRequested()
 /**
  * This is a minimally invasive approach to shutdown on LevelDB read errors from the
  * chainstate, while keeping user interface out of the common library, which is shared
- * between bitcoind, and bitcoin-qt and non-server tools.
+ * between sidechaind, and bitcoin-qt and non-server tools.
 */
 class CCoinsViewErrorCatcher final : public CCoinsViewBacked
 {
@@ -211,6 +211,9 @@ void Shutdown()
     if (fDumpMempoolLater && gArgs.GetArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL)) {
         DumpMempool();
     }
+
+
+    DumpBMMCache();
 
     if (fFeeEstimatesInitialized)
     {
@@ -1604,6 +1607,8 @@ bool AppInitMain()
     if (!est_filein.IsNull())
         ::feeEstimator.Read(est_filein);
     fFeeEstimatesInitialized = true;
+
+    LoadBMMCache();
 
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET

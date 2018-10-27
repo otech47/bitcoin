@@ -469,6 +469,69 @@ std::vector<SidechainDeposit> CSidechainTreeDB::GetDeposits(const uint8_t& nSide
     return vDeposit;
 }
 
+bool CSidechainTreeDB::GetCTIPAmount(const uint256& hash, const uint32_t n, CAmount& amtRet, const std::vector<SidechainDeposit>& vDepositIn)
+{
+    // Collect deposits which have already been processed
+    std::vector<SidechainDeposit> vDeposit = GetDeposits(THIS_SIDECHAIN.nSidechain);
+
+    // Now add deposits which have been passed in manually. These deposits
+    // depend on CTIP which have not been added to the sidechain's ldb yet thus
+    // their input must exist as one of the other unprocessed depoits.
+    for (const SidechainDeposit& d : vDepositIn)
+        vDeposit.push_back(d);
+
+    if (vDeposit.empty())
+        return false;
+
+    // Try to find the deposit which created this CTIP
+    bool fFound = false;
+    for (const SidechainDeposit& d : vDeposit) {
+        if (d.dtx.GetHash() == hash) {
+            if (d.dtx.vout.size() < n)
+                return false;
+
+            amtRet = d.dtx.vout[n].nValue;
+            fFound = true;
+            break;
+        }
+    }
+    return fFound;
+}
+
+bool CSidechainTreeDB::HaveDeposits()
+{
+    const char sidechainop = 'D';
+    std::ostringstream ss;
+    ::Serialize(ss, std::make_pair(std::make_pair(sidechainop, THIS_SIDECHAIN.nSidechain), uint256()));
+
+    boost::scoped_ptr<CDBIterator> pcursor(NewIterator());
+    pcursor->Seek(ss.str());
+    if (pcursor->Valid()) {
+        boost::this_thread::interruption_point();
+        std::pair<char, uint256> key;
+        SidechainDeposit d;
+        if (pcursor->GetKey(key) && key.first == sidechainop) {
+            if (pcursor->GetSidechainValue(d))
+                return true;
+        }
+    }
+    return false;
+}
+
+bool CSidechainTreeDB::HaveDepositNonAmount(const uint256& hash)
+{
+    std::vector<SidechainDeposit> vDeposit = GetDeposits(THIS_SIDECHAIN.nSidechain);
+    if (vDeposit.empty())
+        return false;
+
+    // Try to find the deposit with the non amount hash
+    for (const SidechainDeposit& d : vDeposit) {
+        if (d.GetNonAmountHash() == hash)
+            return true;
+    }
+    return false;
+}
+
 namespace {
 
 //! Legacy class to deserialize pre-pertxout database entries without reindex.

@@ -153,7 +153,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // -promiscuousmempoolflags is used.
     // TODO: replace this with a call to main to assess validity of a mempool
     // transaction (which in most cases can be a no-op).
-    fIncludeWitness = false;
+    fIncludeWitness = true;
 
     int nPackagesSelected = 0;
     int nDescendantsUpdated = 0;
@@ -173,7 +173,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
 
     // Create WT^
-    CTransaction wtJoinTx = CreateWTJoinTx(chainActive.Height() + 1);
+    CTransaction wtJoinTx = CreateWTPrimeTx(chainActive.Height() + 1);
     for (const CTxOut& out : wtJoinTx.vout)
         coinbaseTx.vout.push_back(out);
 
@@ -485,13 +485,61 @@ CTransaction CreateDepositTx()
     std::vector<SidechainDeposit> vDeposit = client.UpdateDeposits(THIS_SIDECHAIN.nSidechain);
     std::vector<SidechainDeposit> vDepositUniq;
     for (const SidechainDeposit& d: vDeposit) {
-        SidechainDeposit temp;
-        if (!psidechaintree->GetDeposit(d.GetHash(), temp)) {
+        if (!psidechaintree->HaveDepositNonAmount(d.GetNonAmountHash())) {
             vDepositUniq.push_back(d);
         }
     }
     if (!vDepositUniq.size())
         return CTransaction();
+
+    bool fInitialDeposit = !psidechaintree->HaveDeposits();
+
+    // If there isn't a deposit yet, make sure there is only 1 initial deposit
+    // which does not spend a CTIP. This check only needs to happen one time.
+    if (fInitialDeposit) {
+        int nMissingCTIP = 0;
+
+        for (const SidechainDeposit& deposit : vDepositUniq) {
+            bool fFound = false;
+            CAmount amtRet;
+            for (const CTxIn& in : deposit.dtx.vin) {
+                if (psidechaintree->GetCTIPAmount(in.prevout.hash, in.prevout.n, amtRet, vDepositUniq)) {
+                    fFound = true;
+                    break;
+                }
+            }
+            if (!fFound)
+                nMissingCTIP++;
+        }
+
+        if (nMissingCTIP != 1)
+            return CTransaction(); // TODO log
+    }
+
+    // Subtract CTIP input from user payout(s) and reject deposits (besides the
+    // initial deposit) for which we cannot look up the CTIP.
+    for (size_t i = 0; i < vDepositUniq.size(); i++) {
+        bool fFound = false;
+        CAmount amtRet = CAmount(0);
+        for (const CTxIn& in : vDepositUniq[i].dtx.vin) {
+            if (psidechaintree->GetCTIPAmount(in.prevout.hash, in.prevout.n, amtRet, vDepositUniq)) {
+                fFound = true;
+                break;
+            }
+        }
+        if (!fFound && fInitialDeposit) {
+            fInitialDeposit = false;
+            continue;
+        }
+        if (!fFound)
+            return CTransaction(); // TODO log
+
+        // Subtract the CTIP input
+        if (vDepositUniq[i].amtUserPayout > amtRet)
+            vDepositUniq[i].amtUserPayout -= amtRet;
+        else
+            vDepositUniq[i].amtUserPayout = CAmount(0);
+    }
 
     CMutableTransaction mtx;
     for (const SidechainDeposit& deposit : vDepositUniq) {
@@ -514,13 +562,15 @@ CTransaction CreateDepositTx()
                 continue;
 
             // Is deposit greater than minimum fee?
-            if (deposit.amtUserPayout < CENT)
+            if (deposit.amtUserPayout < SIDECHAIN_DEPOSIT_FEE)
                 continue;
 
-            // Pay keyID the deposit
+            // Pay keyID the deposit if it isn't dust after paying fee
             CScript script;
             script << OP_DUP << OP_HASH160 << ToByteVector(deposit.keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
-            mtx.vout.push_back(CTxOut(deposit.amtUserPayout - CENT, script));
+            CTxOut depositOut(deposit.amtUserPayout - SIDECHAIN_DEPOSIT_FEE, script);
+            if (!IsDust(depositOut, ::dustRelayFee))
+                mtx.vout.push_back(depositOut);
 
             // Depositor pays fee to sidechain
             CKeyID sidechainKey;
@@ -537,16 +587,19 @@ CTransaction CreateDepositTx()
 }
 
 /** Create joined WT^ to be sent to the mainchain */
-CTransaction CreateWTJoinTx(uint32_t nHeight)
+CTransaction CreateWTPrimeTx(uint32_t nHeight)
 {
-    const Sidechain& s = THIS_SIDECHAIN;
+    SidechainClient client;
 
-    if (nHeight % s.nWTPrimeBroadcastInterval != 0)
-        return CTransaction();
+    const Sidechain& s = THIS_SIDECHAIN;
 
     // Get WT(s) from psidechaintree
     const std::vector<SidechainWT> vWT = psidechaintree->GetWTs(s.nSidechain);
     if (vWT.empty())
+        return CTransaction();
+
+    unsigned int nThreshold = gArgs.GetArg("-wtprimethreshold", DEFAULT_WTPRIME_THRESHOLD);
+    if (nThreshold > vWT.size())
         return CTransaction();
 
     // TODO filter vWT (by height & used)
@@ -555,6 +608,7 @@ CTransaction CreateWTJoinTx(uint32_t nHeight)
 
     CAmount joinAmount = 0;  // Total output
     CMutableTransaction wjtx; // WT^
+    wjtx.nVersion = 2;
     for (const SidechainWT& wt : vWTFiltered) {
         CAmount amountWT = wt.wt.GetValueBurnedForWT();
         joinAmount += amountWT;
@@ -567,6 +621,15 @@ CTransaction CreateWTJoinTx(uint32_t nHeight)
     // Did anything make it into the WT^?
     if (!wjtx.vout.size())
         return CTransaction();
+
+    // Lookup the mainchain CTIP
+    std::pair<uint256, uint32_t> ctip;
+    if (!client.GetCTIP(ctip))
+        return CTransaction();
+
+    // Add this sidechain's current CTIP to the WT^
+    // Note that the real scriptSig will be provided by the mainchain
+    wjtx.vin.push_back(CTxIn(COutPoint(ctip.first, ctip.second), CScript() << OP_0));
 
     // TODO improve fee calculation
     CAmount nBaseFee = CENT;
@@ -588,9 +651,6 @@ CTransaction CreateWTJoinTx(uint32_t nHeight)
     // leaving the rest for the mainchain miners
     if (nJoinFee > 0)
         wjtx.vout.push_back(CTxOut((nJoinFee / 2), SIDECHAIN_FEESCRIPT));
-
-    wjtx.vin.resize(1);
-    wjtx.vin[0].scriptSig = CScript() << OP_0;
 
     // Create WT^ object
     SidechainWTJoin wtJoin;
