@@ -6,7 +6,7 @@
 from decimal import Decimal
 from io import BytesIO
 
-from test_framework.mininode import CTransaction, COIN
+from test_framework.messages import COIN, CTransaction
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_array_result,
@@ -26,6 +26,9 @@ class ListTransactionsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         self.enable_mocktime()
+
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
 
     def run_test(self):
         # Simple send, 0 to 1:

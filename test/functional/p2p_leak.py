@@ -10,9 +10,12 @@ received a VERACK.
 This test connects to a node and sends it a few messages, trying to entice it
 into sending us something it shouldn't."""
 
-from test_framework.mininode import *
+import time
+
+from test_framework.messages import msg_getaddr, msg_ping, msg_verack
+from test_framework.mininode import mininode_lock, P2PInterface
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
+from test_framework.util import wait_until
 
 banscore = 10
 
@@ -100,7 +103,7 @@ class P2PLeakTest(BitcoinTestFramework):
         wait_until(lambda: no_verack_idlenode.version_received, timeout=10, lock=mininode_lock)
 
         # Mine a block and make sure that it's not sent to the connected nodes
-        self.nodes[0].generate(1)
+        self.nodes[0].generatetoaddress(1, self.nodes[0].get_deterministic_priv_key().address)
 
         #Give the node enough time to possibly leak out a message
         time.sleep(5)

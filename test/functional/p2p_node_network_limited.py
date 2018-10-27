@@ -8,10 +8,10 @@ Tests that a node configured with -prune=550 signals NODE_NETWORK_LIMITED correc
 and that it responds to getdata requests for blocks correctly:
     - send a block within 288 + 2 of the tip
     - disconnect peers who request blocks older than that."""
-from test_framework.messages import CInv, msg_getdata, msg_verack
-from test_framework.mininode import NODE_BLOOM, NODE_NETWORK_LIMITED, NODE_WITNESS, P2PInterface, wait_until, mininode_lock
+from test_framework.messages import CInv, msg_getdata, msg_verack, NODE_BLOOM, NODE_NETWORK_LIMITED, NODE_WITNESS
+from test_framework.mininode import P2PInterface, mininode_lock
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, disconnect_nodes, connect_nodes_bi, sync_blocks
+from test_framework.util import assert_equal, disconnect_nodes, connect_nodes_bi, sync_blocks, wait_until
 
 class P2PIgnoreInv(P2PInterface):
     firstAddrnServices = 0
@@ -59,7 +59,7 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
 
         self.log.info("Mine enough blocks to reach the NODE_NETWORK_LIMITED range.")
         connect_nodes_bi(self.nodes, 0, 1)
-        blocks = self.nodes[1].generate(292)
+        blocks = self.nodes[1].generatetoaddress(292, self.nodes[1].get_deterministic_priv_key().address)
         sync_blocks([self.nodes[0], self.nodes[1]])
 
         self.log.info("Make sure we can max retrieve block at tip-288.")
@@ -89,7 +89,7 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
             sync_blocks([self.nodes[0], self.nodes[2]], timeout=5)
         except:
             pass
-        # node2 must remain at heigh 0
+        # node2 must remain at height 0
         assert_equal(self.nodes[2].getblockheader(self.nodes[2].getbestblockhash())['height'], 0)
 
         # now connect also to node 1 (non pruned)
@@ -102,7 +102,7 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
         self.disconnect_all()
 
         # mine 10 blocks on node 0 (pruned node)
-        self.nodes[0].generate(10)
+        self.nodes[0].generatetoaddress(10, self.nodes[0].get_deterministic_priv_key().address)
 
         # connect node1 (non pruned) with node0 (pruned) and check if the can sync
         connect_nodes_bi(self.nodes, 0, 1)

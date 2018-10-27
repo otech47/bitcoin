@@ -13,9 +13,10 @@ if uploadtarget has been reached.
 from collections import defaultdict
 import time
 
-from test_framework.mininode import *
+from test_framework.messages import CInv, msg_getdata
+from test_framework.mininode import P2PInterface
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
+from test_framework.util import assert_equal, mine_large_block
 
 class TestP2PConn(P2PInterface):
     def __init__(self):
@@ -38,6 +39,9 @@ class MaxUploadTest(BitcoinTestFramework):
 
         # Cache for utxos, as the listunspent may take a long time later in the test
         self.utxo_cache = []
+
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
 
     def run_test(self):
         # Before we connect anything, we first set the time on the node

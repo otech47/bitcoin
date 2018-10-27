@@ -23,6 +23,8 @@
 
 #include <stdio.h>
 
+const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
+
 /* Introduction text for doxygen: */
 
 /*! \mainpage Developer documentation
@@ -183,6 +185,10 @@ static bool AppInit(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
+#ifdef WIN32
+    util::WinCmdLineArgs winArgs;
+    std::tie(argc, argv) = winArgs.get();
+#endif
     SetupEnvironment();
 
     // Connect bitcoind signal handlers

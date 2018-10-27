@@ -51,11 +51,13 @@ Node1 is unused in tests 3-7:
    work on its chain).
 """
 
-from test_framework.mininode import *
-from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
 import time
+
 from test_framework.blocktools import create_block, create_coinbase, create_tx_with_script
+from test_framework.messages import CBlockHeader, CInv, msg_block, msg_headers, msg_inv
+from test_framework.mininode import mininode_lock, P2PInterface
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import assert_equal, assert_raises_rpc_error, connect_nodes, sync_blocks
 
 
 class AcceptBlockTest(BitcoinTestFramework):
@@ -80,8 +82,8 @@ class AcceptBlockTest(BitcoinTestFramework):
         min_work_node = self.nodes[1].add_p2p_connection(P2PInterface())
 
         # 1. Have nodes mine a block (leave IBD)
-        [ n.generate(1) for n in self.nodes ]
-        tips = [ int("0x" + n.getbestblockhash(), 0) for n in self.nodes ]
+        [n.generatetoaddress(1, n.get_deterministic_priv_key().address) for n in self.nodes]
+        tips = [int("0x" + n.getbestblockhash(), 0) for n in self.nodes]
 
         # 2. Send one block that builds on each tip.
         # This should be accepted by node0
