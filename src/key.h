@@ -114,7 +114,7 @@ public:
      * Create a DER-serialized signature.
      * The test_case parameter tweaks the deterministic nonce.
      */
-    bool Sign(const uint256& hash, std::vector<unsigned char>& vchSig, uint32_t test_case = 0) const;
+    bool Sign(const uint256& hash, std::vector<unsigned char>& vchSig, bool grind = true, uint32_t test_case = 0) const;
 
     /**
      * Create a compact signature (65 bytes), which allows reconstructing the used public key.
@@ -181,12 +181,12 @@ struct CExtKey {
 };
 
 /** Initialize the elliptic curve support. May not be called twice without calling ECC_Stop first. */
-void ECC_Start(void);
+void ECC_Start();
 
 /** Deinitialize the elliptic curve support. No-op if ECC_Start wasn't called first. */
-void ECC_Stop(void);
+void ECC_Stop();
 
 /** Check that required EC support is available at runtime. */
-bool ECC_InitSanityCheck(void);
+bool ECC_InitSanityCheck();
 
 #endif // BITCOIN_KEY_H
