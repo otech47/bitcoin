@@ -37,6 +37,7 @@ Alice is now considered the cryptographically-proven owner of the claimed asset 
 To review the state of this network thus far:
 
 **Main-chain**
+
 | Address       | Amount  |
 | ------------- | ------- |
 | Charlie       | 0 BTC   |
@@ -46,6 +47,7 @@ To review the state of this network thus far:
 | Alice         | 0 BTC   |
 
 **Side-chain**
+
 | Address       | Amount   |
 | ------------- | -------  |
 | Charlie       | 0.9 SBTC |
